@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>test</title>
+</head>
+<body>
+	<div id = "test">
+		<ul>
+			<li class="one">1</li>
+			<li class="two">2</li>
+			<li class="three">3</li>
+		</ul>
+	</div>
+</body>
+<script>
+var Zepto = (function() {
+	var undefined, key, $, classList,
+
+		// 获取数组的slice 和 filter（返回数组中的满足回调函数中指定的条件的元素）方法
+		emptyArray = [], slice = emptyArray.slice, filter = emptyArray.filter,
+
+		document = window.document,
+		elementDisplay = {}, classCache = {}, // ?
+		cssNumber = {
+			'column-count': 1,
+			'columns': 1,
+			'font-weight': 1,
+			'line-height': 1,
+			'opacity': 1,
+			'z-index': 1,
+			'zoom': 1
+		},
+
+		// ?取出html代码中第一个html标签（或注释），如取出 <p>123</p><h1>345</h1> 中的 <p>
+		fragmentRE = /^\s*<(\w+|!)[^>]*>/,
+		// 仅仅标签 匹配 <img /> <p></p>  不匹配 <img src=""/> <p>123</p>
+		singleTagRE = /^<(\w+)\s*\/?>(?:<\/\1>|)$/,
+		// 单标签扩展
+		tagExpanderRE = /<(?!area|br|col|embed|hr|img|input|link|meta|param)(([\w:]+)[^>]*)\/>/ig,
+		// body html
+		rootNodeRE = /^(?:body|html)$/i,
+		// 大写字母
+		capitalRE = /([A-Z])/g,
+
+		// special attributes that should be get/set via method calls
+    // 应该通过方法调用来设置/获取的特殊属性
+    methodAttributes = ['val', 'css', 'html', 'text', 'data', 'width', 'height', 'offset'],
+
+		adjacencyOperators = [ 'after', 'prepend', 'before', 'append' ], // 临接操作符
+
+		table = document.createElement('table'),
+		tableRow = document.createElement('tr'),
+		// 指定特殊元素的 容器
+		containers = {
+			'tr': document.createElement('tbody'),
+			'tbody': table,
+			'thead': table,
+			'tfoot': table,
+			'td': tableRow,
+			'th': tableRow,
+			// 除了上面指定的，其他所有元素的容器都是 div
+			'*': document.createElement('div')
+		},
+
+		readyRE = /complete|loaded|interactive/,  // ?
+
+		// 匹配一个包括（字母、数字、下划线、-）的字符串
+		simpleSelectorRE = /^[\w-]*$/,
+
+		class2type = {},  // ?
+		toString = class2type.toString,
+
+		zepto = {},
+		camelize, uniq,
+
+		tempParent = document.createElement('div'),
+
+		// 属性转换为 camalCase 格式。
+    // $.fn.prop 方法用到了
+    propMap = {
+			'tabindex': 'tabIndex',
+			'readonly': 'readOnly',
+			'for': 'htmlFor',
+			'class': 'className',
+			'maxlength': 'maxLength',
+			'cellspacing': 'cellSpacing',
+			'cellpadding': 'cellPadding',
+			'rowspan': 'rowSpan',
+			'colspan': 'colSpan',
+			'usemap': 'useMap',
+			'frameborder': 'frameBorder',
+			'contenteditable': 'contentEditable'
+		},
+		// 判断是否是arr的函数
+		isArray = Array.isArray || function(object){ return object instanceof Array }
+
+		// 上文定义 zepto = {}
+		// 判断 element 是否符合 selector 的选择要求
+		zepto.matches = function(element, selector) {
+			// selector有值，element有值，element是普通DOM节点
+			if (!selector || !element || element.nodeType !== 1) {
+				return false;
+			}
+
+			// 判断当前的 elem 是否符合传入的 selector 的要求
+			var matchesSelector = element.webkitMatchesSelector ||
+														element.mozMatchesSelector ||
+														element.oMatchesSelector ||
+														element.matchesSelector;
+			if (matchesSelector) {
+				return matchesSelector.call(element, selector);
+			}
+
+			// 浏览器不支持 matchesSelector
+    	// fall back to performing a selector:
+    	var match,
+					parent = element.parentNode,
+					temp = !parent;
+
+			// 上文定义 tempParent = document.createElement('div'),
+		  // 如果没有parent，parent赋值为一个div，然后将当前元素加入到这个div中
+		  if (temp) {
+		  	parent = tempParent;
+				tempParent.appendChild(element);
+				// (parent = tempParent).appendChild(element); 这种写法不易读
+		  }
+
+			// 通过 qsa 获取匹配的元素，判断其中有没有 element
+			match = ~zepto.qsa(parent, selector).indexOf(element);
+
+			if (temp) {
+				// 如果没有parent时，之前执行过  tempParent.appendChild(element);
+      	// 此时要移除子元素
+      	tempParent.removeChild(element);
+			}
+			// temp && tempParent.removeChild(element)  // 这种写法不易读
+
+    	// 返回最终的匹配结果，经过 qsa 判断的结果
+    	return match;
+		}
+
+		function type(obj) {
+			return obj == null ?
+						 String(obj) : // null undefined
+						 class2type[toString.call(obj)] || "object";
+			 // 下文定义：
+	     // // Populate the class2type map
+	     // $.each("Boolean Number String Function Array Date RegExp Object Error".split(" "), function(i, name) {
+	     //   class2type[ "[object " + name + "]" ] = name.toLowerCase()
+	     // })
+		}
+
+		function isFunction(value) { return type(value) == "function"; }
+		// window的特点：window.window === window
+		function isWindow(obj) { return obj != null && obj == obj.window; }
+		// document.nodeType === 9
+ 		// elem.DOCUMENT_NODE 也等于 9 （这里直接判断是不是9也行？？？）
+		function isDocument(obj) { return obj != null && obj.nodeType == obj.DOCUMENT_NODE; }
+		function isObject(obj) { return type(obj) == "object"; }
+		// 判断是否是最基本的object：Object.getPrototypeOf(obj) == Object.prototype
+		function isPlainObject(obj) {
+			return isObject(obj) && !isWindow(obj) && Object.getPrototypeOf(obj) == Object.prototype;
+		}
+		// 数组或者对象数组
+		function likeArray(obj) { return typeof obj.length == 'number'; }
+		// 筛选数组，踢出 null undefined 元素
+		function compact(array) { return filter.call(array, function(item){ return item != null }) }
+
+		function flatten(array) {  }
+
+		camelize = function(str) {  }
+
+		// 将 lineHeight 转换为 line-height 格式
+		function dasherize(str) {
+
+		}
+
+		uniq = function(array){  }
+
+		// 上文定义 classCache = {}
+		function classRE(name) {
+
+		}
+
+		// 传入一个 css 的 name 和 value，判断这个 value 是否需要增加 'px'
+		function maybeAddPx(name, value) {
+
+		}
+
+		// 获取一个元素的默认 display 样式值，可能的结果是：inline block inline-block table .... （none 转换为 block）
+  	// $.fn.show 方法中用到了
+  	function defaultDisplay(nodeName) {
+
+		}
+
+		// 返回一个元素的子元素，数组形式
+		function children(element) {
+
+		}
+
+	// 上文定义 zepto = {}
+  // 上文定义 zepto.matches = function(element, selector) { /* 判断elem是否符合selector的要求 */ }
+
+  // `$.zepto.fragment` takes a html string and an optional tag name
+  // to generate DOM nodes nodes from the given html string.
+  // The generated DOM nodes are returned as an array.
+  // This function can be overriden in plugins for example to make
+  // it compatible with browsers that don't support the DOM fully.
+	zepto.fragment = function(html, name, properties) {
+		/*
+      @html: 待处理的html字符串
+      @name: 通过 name 可在 containers 中查找容器节点，如果不传入，取得的容器默认为 div
+      @properties: 节点属性对象
+    */
+
+		var dom, nodes, container;
+
+		// 上文定义：singleTagRE = /^<(\w+)\s*\/?>(?:<\/\1>|)$/,   // 匹配 <img /> <p></p>  不匹配 <img src=""/> <p>123</p>
+    // 如果 html 是单标签，则直接用该标签创建元素
+    // RegExp.$1 表示正则中的第一个括号匹配的内容，在此即 (\w+) 匹配的内容，
+    // A special case optimization for a single tag
+    if (singleTagRE.test(html)) {
+    	dom = $(document.createElement(RegExp.$1)); // ? 为什么加$
+    }
+
+		if (!dom) {
+			// 说明 html 不是单标签，dom未被赋值
+
+      // 上文定义 tagExpanderRE = /<(?!area|br|col|embed|hr|img|input|link|meta|param)(([\w:]+)[^>]*)\/>/ig,   // 单标签
+      // 将 <p/>或<p />，替换为 <p></p>，将<p abc/>替换为<p>abc</p>
+      // <input/> （在 tagExpanderRE 中定义）的不替换
+      if (html.replace) {
+      	html = html.replace(tagExpanderRE, "<$1></$2>")
+      }
+			
+		}
+	}
+
+	// 上文定义 zepto = {}
+  // 上文定义 zepto.matches = function(element, selector) { /* 判断elem是否符合selector的要求 */ }
+  // 上文定义 zepto.fragment = function(html, name, properties) { /* 通过html字符串获取文档碎片 */ }
+
+  // `$.zepto.Z` swaps out the prototype of the given `dom` array
+  // of nodes with `$.fn` and thus supplying all the Zepto functions
+  // to the array. Note that `__proto__` is not supported on Internet
+  // Explorer. This method can be overriden in plugins.
+	zepto.Z = function(dom, selector) {
+		dom = dom || [];
+		// 将 dom 隐式原型强制改为 $.fn
+		dom.__proto__ = $.fn;
+		dom.selector = selector || '';
+		return dom;
+	}
+
+	// `$.zepto.init` is Zepto's counterpart to jQuery's `$.fn.init` and
+	// takes a CSS selector and an optional context (and handles various
+	// special cases).
+	// This method can be overriden in plugins.
+	zepto.init = function(selector, context) {
+		var dom;
+		// If nothing given, return an empty Zepto collection
+		if (!selector) {return zepto.Z();}
+		else if (typeof selector == 'string') {
+			// 字符串的情况，一般有两种：
+			// 第一，一段 html 代码，旨在通过zepto生成dom对象
+			// 第二，一段查询字符串，旨在通过zepto查找dom对象
+			// 将查询结果存储到 dom 变量中
+			selector = selector.trim();
+			// If it's a html fragment, create nodes from it
+			// Note: In both Chrome 21 and Firefox 15, DOM error 12
+			// is thrown if the fragment doesn't begin with <
+
+			// 上文定义：
+			// 取出html代码中第一个html标签（或注释），如取出 <p>123</p><h1>345</h1> 中的 <p>
+			// fragmentRE = /^\s*<(\w+|!)[^>]*>/,
+			if (selector[0] == '<' && fragmentRE.test(selector)) {
+
+				// 第一，RegExp.$1取出来的就是第一个标签名称，即正则中 (\w+|!) 对应的内容
+				// 第二，此时的 context 应该传入的是css属性对象（这里会产生歧义，老版的不会传入 context）
+				dom = zepto.fragment(selector, RegExp.$1, context), selector = null
+			}else if (context !== undefined) {
+				return $(context).find(selector);
+			}else {
+				dom = zepto.qsa(document, selector);
+			}
+		}
+		// If a function is given, call it when the DOM is ready
+		// 如果是函数，则dom ready时执行，
+		// ready方法应该在 $.fn 中定义，有待解毒
+		else if (isFunction(selector)) {}
+
+		// If a Zepto collection is given, just return it
+		// 传入的参数本身就已经是 zepto 对象，则直接返回
+		else if (zepto.isZ(selector)) { return selector }
+		else {
+
+		}
+
+		// 最终，还是通过 zepto.Z 创建了对象
+		// 这里的 dom，其实就是一个数组
+		// create a new Zepto collection from the nodes found
+		return zepto.Z(dom, selector)
+	}
+
+	return $
+})();
+
+// $ 最终被这个匿名函数所返回，并复制给了全局的 Zepto 变量
+// 全局的 zepto 变量暴露给了 window，并且可能有一个别名—— $
+$ = function(selector, context){
+  return zepto.init(selector, context)
+}
+
+function extend(target, source, deep) {
+
+}
+
+// Copy all but undefined properties from one or more
+// objects to the `target` object.
+$.extend = function(target) {
+
+}
+
+// `$.zepto.qsa` is Zepto's CSS selector implementation which
+// uses `document.querySelectorAll` and optimizes for some special cases, like `#id`.
+// This method can be overriden in plugins.
+zepto.qsa = function(element, selector) {
+	/*
+  	@element: 容器
+ 	 	@selector: 选择器
+	*/
+
+	var found,
+			maybeID = selector[0] == '#',
+			maybeClass = !maybeID && selector[0] == '.',
+
+			// ID或class形式：返回 selector.slice(1) 即ID或者class的值
+    	// 否则：返回 selector，如通过 tagName 查询
+    	nameOnly = maybeID || maybeClass ? selector.slice(1) : selector, // Ensure that a 1 char tag name still gets checked
+
+			// 是否是一个简单的字符串（可能是一个复杂的选择器，如 'div#div1 .item[link] .red'）
+			isSimple = simpleSelectorRE.test(nameOnly);
+
+	// 上文定义：
+  // 匹配一个包括（字母、数字、下划线、-）的字符串
+  // simpleSelectorRE = /^[\w-]*$/,
+
+	// 以下代码的基本思路是：
+  // 1. 优先通过 ID 获取元素；
+  // 2. 然后试图通过 className 和 tagName 获取元素
+  // 3. 最后通过 querySelectorAll 来获取
+	return (isDocument(element) && isSimple && maybeID) ?
+	// 这是最简单的形式：容器是document、选择器是一个id
+	// 因为 getElementById 只能在 document 上用，所以这里单独拿出来
+	( (found = element.getElementById(nameOnly)) ?
+			[found] :
+			[]
+	) :
+	(element.nodeType !== 1 && element.nodeType !== 9) ?
+		// 容器不是一般元素，也不是document，直接返回 []
+		[] :
+
+		// 将获取的所有元素集合，都转换为数组
+		slice.call(
+			isSimple && !maybeID
+
+			// isSimple情况下，nameOnly 只可能是 className 或者 tagName
+      // getElementsByClassName 和 getElementsByTagName 可以在 elem 上用，而且比 querySelectorAll 速度快
+      // 所以，只要elem容器有值，尽量单独拿出来处理
+      ?
+				maybeClass ?
+				element.getElementsByClassName(nameOnly) : // If it's simple, it could be a class
+				element.getElementsByTagName(selector)  // Or a tag
+
+			// 最后其他情况，只能通过 querySelectorAll 来处理
+			:
+			element.querySelectorAll(selector) // Or it's not simple, and we need to query all
+		)
+}
+
+
+// 遍历 elements 所有元素（数组、对象数组、对象），执行 callback 方法，最终还是返回 elements
+// 注意1：callback.call(elements[i], i, elements[i]) 函数执行的环境和参数
+// 注意2：=== false) return elements 一旦有函数返回 false，即跳出循环，类似 break
+// 注意3：无论哪种情况，最终返回的还是 elements
+$.each = function(elements, callback){
+	var i,key;
+	if (likeArray(elements)) {
+		for (i = 0; i < elements.length; i++){
+			if (callback.call(elements[i], i, elements[i]) === false) return elements;  // fun.call(thisArg[, arg1[, arg2[, ...]]])
+		}
+	} else {
+		for (key in elements) {
+			if (callback.call(elements[key], key, elements[key]) === false) return elements;
+		}
+	}
+
+	return elements;
+}
+
+// Populate the class2type map
+$.each("Boolean Number String Function Array Date RegExp Object Error".split(" "), function(i, name) {
+	class2type[ "[object " + name + "]" ] = name.toLowerCase()
+	/*
+    上文将 class2type 赋值为 {}
+    最终将 class2type 赋值为：
+    {
+      '[object boolean]': 'boolean',
+      '[object number]': 'number',
+      '[object string]': 'string',
+      ...
+    }
+
+    存储这个数据是为了方便的获取一些对象的类型，
+    例如 Object.prototype.toString.call([]) 返回的是 '[Object Array]'
+    那么即可根据这个获取 [] 的类型是 'array'
+  */
+})
+
+$.fn = {
+// 为何要这么多数组的方法？
+// 因为一个 zepto 对象，本身就是一个数组
+
+// Because a collection acts like an array
+// copy over these useful array functions.
+	forEach: emptyArray.forEach,
+	reduce: emptyArray.reduce,
+	push: emptyArray.push,
+	sort: emptyArray.sort,
+	indexOf: emptyArray.indexOf,
+	concat: emptyArray.concat,
+
+	// `map` and `slice` in the jQuery API work differently
+	// from their array counterparts
+	map: function(fn) {
+
+	},
+	slice: function() {
+
+	},
+	ready: function() {
+
+	},
+	get: function(idx) {
+
+	},
+
+	// 将zepto集合变为纯数组
+	toArray: function() {},
+
+	size: function() {
+
+	},
+
+	// 将元素从这个DOM树中移除
+	remove: function() {
+
+	},
+
+	each: function() {
+
+	},
+	filter: function() {
+
+	},
+	add: function(selector, context) {
+
+	},
+	is: function(selector) {
+
+	},
+	not: function(){
+
+	},
+	has: function() {
+
+	},
+	eq: function() {
+
+	},
+	first: function() {
+
+	},
+	last: function() {
+
+	},
+	find: function() {
+
+	},
+	// 从元素本身开始，逐级向上级元素匹配，并返回最先匹配selector的元素
+	closest: function(selector, context){
+
+	},
+	parents: function(selector){
+
+	},
+
+	// 获取对象集合中每个元素的直接父元素。如果css选择器参数给出。过滤出符合条件的元素。
+	parent: function(selector){
+
+	},
+
+	// 获得每个匹配元素集合元素的直接子元素，可通过 selector 过滤
+	children: function(selector){
+
+	},
+
+	// 获得每个匹配元素集合元素的子元素，包括文字和注释节点
+	contents: function() {
+
+	},
+
+	// 获取对象集合中所有元素的兄弟节点，可通过 selector 过滤
+	siblings: function(selector) {
+
+	},
+	empty: function() {
+
+	},
+	// `pluck` is borrowed from Prototype.js
+	pluck: function(property){
+
+	},
+	show: function() {
+
+	},
+	replaceWith: function(newContent) {
+
+	},
+	wrap: function(structure) {
+
+	},
+	// 在所有匹配元素外面包一个单独的结构
+	wrapAll: function(structure) {
+
+	},
+	wrapInner: function(structure) {
+
+	},
+	unwrap: function() {
+
+	},
+	clone: function() {
+
+	},
+	hide: function() {
+
+	},
+	// 切换显示和隐藏
+	toggle: function(setting) {
+
+	},
+	// 借助 previousElementSibling 属性
+	prev: function(selector) {},
+	// 借助 nextElementSibling 属性
+	next: function(selector) {},
+	html: function(html) {
+
+	},
+	text: function(text) {
+
+	},
+	attr: function(name, value) {
+
+	},
+	removeAttr: function(name) {
+
+	},
+
+	// 读取、设置属性（js对象的属性）
+	prop: function(name, value) {
+
+	},
+
+	// 前面加上 'data-' 通过 attr 设置或者读取
+	data: function(name, value) {
+
+	},
+	val: function(value) {
+
+	},
+
+	// 获取、设置元素的 offset
+	offset: function(coordinates) {
+
+	},
+
+	// 设置、获取 css
+	css: function(property, value) {
+
+	},
+	// 获取一个元素的索引值（从0开始计数）。当elemen参数没有给出时，返回当前元素在兄弟节点中的位置
+	index: function(element) {
+
+	},
+	hasClass: function(name) {
+
+	},
+	addClass: function(name) {
+
+	},
+	removeClass: function(name) {
+
+	},
+	toggleClass: function(name, when) {
+
+	},
+	scrollTop: function(value) {
+
+	},
+	scrollLeft: function(value) {
+
+	},
+	position: function() {
+
+	},
+	offsetParent: function() {
+
+	}
+}
+
+
+window.Zepto = Zepto;
+window.$ === undefined && (window.$ = Zepto);
+
+</script>
+</body>
+</html>
